@@ -16,27 +16,6 @@ class HotDeploymentTest(ApplianceTestSupport):
         logging.basicConfig(level=logging.INFO)
         super(HotDeploymentTest, self).setUp()
 
-    @contextmanager
-    def _venvApplianceCluster(self):
-        """
-        Creates an appliance cluster with a virtualenv at './venv' on the leader and a temporary
-        directory on the host mounted at /data in the leader and worker containers.
-        """
-        dataDirPath = self._createTempDir(purpose='data')
-        with self._applianceCluster(mounts={dataDirPath: '/data'}) as (leader, worker):
-            try:
-                leader.runOnAppliance('virtualenv',
-                                      '--system-site-packages',
-                                      '--never-download',  # prevent silent upgrades to pip etc
-                                      'venv')
-                leader.runOnAppliance('venv/bin/pip', 'list')  # For diagnostic purposes
-                yield leader, worker
-            finally:
-                # Without this step, we would leak files owned by root on the host's file system
-                leader.runOnAppliance('rm', '-rf', '/data/*')
-
-    sitePackages = 'venv/lib/python2.7/site-packages'
-
     def testRestart(self):
         """
         Test whether hot-deployment works on restart.
