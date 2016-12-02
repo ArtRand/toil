@@ -83,7 +83,7 @@ class AbstractProvisioner(object):
             raise RuntimeError('Provisioner was not able to reduce cluster size to zero.')
 
     def startStats(self, preemptable):
-        thread = ExceptionalThread(self._gatherStats, preemptable)
+        thread = ExceptionalThread(target=self._gatherStats, args=[preemptable])
         thread.start()
         self.statsThreads.append(thread)
 
