@@ -72,17 +72,19 @@ class AbstractProvisioner(object):
         log.debug('Shutting down %s provisioner stats thread.',
                   'preemptable' if preemptable else 'non-preemptable')
         self.stop = True
-        log.debug('Forcing provisioner to reduce cluster size to zero.')
         for thread in self.statsThreads:
             thread.join()
         fileName = getFileName()
         json.dump(self.stats, fileName)
+        log.debug('Forcing provisioner to reduce cluster size to zero.')
         totalNodes = self.setNodeCount(numNodes=0, preemptable=preemptable, force=True)
         if totalNodes != 0:
             raise RuntimeError('Provisioner was not able to reduce cluster size to zero.')
 
     def startStats(self, preemptable):
-        self.statsThreads.append(ExceptionalThread(self._gatherStats, preemptable))
+        thread = ExceptionalThread(self._gatherStats, preemptable)
+        thread.start()
+        self.statsThreads.append(thread)
 
     def checkStats(self):
         for thread in self.statsThreads:
