@@ -61,7 +61,7 @@ class AbstractProvisioner(object):
     def shutDown(self, preemptable):
         def getFileName():
             extension = '.json'
-            file = '%s-stats' % self.config.jobStoreID
+            file = '%s-stats' % self.config.jobStore
             counter = 0
             while True:
                 suffix = str(counter).zfill(3) + extension
@@ -69,13 +69,14 @@ class AbstractProvisioner(object):
                 if not os.path.exists(fullName):
                     return fullName
                 counter += 1
-        log.debug('Shutting down %s provisioner stats thread.',
-                  'preemptable' if preemptable else 'non-preemptable')
-        self.stop = True
-        for thread in self.statsThreads:
-            thread.join()
-        fileName = getFileName()
-        json.dump(self.stats, fileName)
+        if self.config.clusterStats:
+            log.debug('Shutting down %s provisioner stats thread.',
+                      'preemptable' if preemptable else 'non-preemptable')
+            self.stop = True
+            for thread in self.statsThreads:
+                thread.join()
+            fileName = getFileName()
+            json.dump(self.stats, fileName)
         log.debug('Forcing provisioner to reduce cluster size to zero.')
         totalNodes = self.setNodeCount(numNodes=0, preemptable=preemptable, force=True)
         if totalNodes != 0:
