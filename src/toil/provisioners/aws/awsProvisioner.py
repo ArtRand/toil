@@ -200,6 +200,8 @@ class AWSProvisioner(AbstractProvisioner):
                                      subnet_id=self._vpcSubnet)
 
         # wait for the leader to finish setting up
+        logger.debug(f"attaching instance profile ARN {profileArn} this leader")
+        self._leaderProfileArn = profileArn
         leader = instances[0]
         leader.wait_until_running()
 
@@ -212,6 +214,7 @@ class AWSProvisioner(AbstractProvisioner):
         leader.create_tags(Tags=tags)
 
         self._tags = leader.tags
+
         self._leaderPrivateIP = leader.private_ip_address
         self._subnetID = leader.subnet_id
 
@@ -323,7 +326,8 @@ class AWSProvisioner(AbstractProvisioner):
         if isinstance(userData, str):
             # Spot-market provisioning requires bytes for user data.
             userData = userData.encode('utf-8')
-        sgs = [sg for sg in self._ctx.ec2.get_all_security_groups() if sg.name in self._leaderSecurityGroupNames]
+        sgs = [sg for sg in self._ctx.ec2.get_all_security_groups() if self.clusterName in sg.name]
+        logger.debug(f"adding nodes to security groups: {sgs}")
         kwargs = {'key_name': self._keyName,
                   'security_group_ids': [sg.id for sg in sgs],
                   'instance_type': instanceType.name,
@@ -363,8 +367,11 @@ class AWSProvisioner(AbstractProvisioner):
             with attempt:
                 wait_instances_running(self._ctx.ec2, instancesLaunched)
 
-        self._tags[_TOIL_NODE_TYPE_TAG_KEY] = 'worker'
-        AWSProvisioner._addTags(instancesLaunched, self._tags)
+        worker_tags = [
+            {_TOIL_NODE_TYPE_TAG_KEY: "worker"}
+        ]
+        self._tags.extend(worker_tags)
+        AWSProvisioner._addTags(instancesLaunched, worker_tags)
         if self._sseKey:
             for i in instancesLaunched:
                 self._waitForIP(i)
@@ -409,29 +416,29 @@ class AWSProvisioner(AbstractProvisioner):
                  or a compatible replacement like Flatcar.
         :rtype: str
         """
-        
+
         # Take a user override
         ami = os.environ.get('TOIL_AWS_AMI')
         if ami is not None:
             return ami
-        
+
         # CoreOS is dead, long live Flatcar
-        
+
         # Flatcar images, however, only live for 9 months.
         # Rather than hardcode a list of AMIs by region that will die, we use
-        # their JSON feed of the current ones. 
+        # their JSON feed of the current ones.
         JSON_FEED_URL = 'https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_ami_all.json'
-        
+
         # What region do we care about?
         region = zone_to_region(self._zone)
-        
+
         for attempt in old_retry(predicate=lambda e: True):
             # Until we get parseable JSON
             # TODO: What errors do we get for timeout, JSON parse failure, etc?
             with attempt:
                 # Try to get the JSON and parse it.
                 feed = json.loads(urllib.request.urlopen(JSON_FEED_URL).read())
-                
+
         try:
             for ami_record in feed['amis']:
                 # Scan the klist of regions
@@ -444,7 +451,7 @@ class AWSProvisioner(AbstractProvisioner):
         except KeyError:
             # We didn't see a field we need
             raise RuntimeError('Flatcar image feed at {} does not have expected format'.format(JSON_FEED_URL))
-        
+
         if ami is None:
             # We didn't find it
             raise RuntimeError('Flatcar image feed at {} does not have an image for region {}'.format(JSON_FEED_URL, region))
@@ -495,8 +502,9 @@ class AWSProvisioner(AbstractProvisioner):
     @classmethod
     def _addTags(cls, instances, tags):
         for instance in instances:
-            for key, value in tags.items():
-                cls._addTag(instance, key, value)
+            for tag in tags:
+                for key, value in tag.items():
+                    cls._addTag(instance, key, value)
 
     @classmethod
     def _waitForIP(cls, instance):
